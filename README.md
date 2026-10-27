@@ -7,6 +7,7 @@ combined. Models are trained on **normal operation only**, then flag anything th
 |---|---|---|
 | DCASE 2024 Task 2 | sound | benchmark on 7 machine types with published results to compare against |
 | MaFaulDa | sound + vibration, recorded together | comparing sound vs. vibration vs. fusion on the same machine |
+| Any other dataset | sound and/or vibration | no code needed: folder layout or manifest CSV (`configs/folder.yaml`) |
 
 ## Setup
 
@@ -49,6 +50,38 @@ How it is split (`configs/mafaulda.yaml`): 70% of normal files for training, 30%
 no recording appears in both train and test. With only ~15 normal test files, AUCs are noisy: compare models on
 several seeds (`--set seed=1`) before drawing conclusions.
 
+### Adding a dataset without code
+
+Put the files in this layout (sub-folders deeper down are fine), copy `configs/folder.yaml` to
+`configs/<name>.yaml` and set `data_root`:
+
+```
+<data_root>/<machine>/normal/...              normal recordings; split into train/test by file (test_fraction)
+<data_root>/<machine>/anomaly/<fault>/...     faulty recordings, test only; folder name = fault type
+```
+If the dataset has an official split, use `train/normal/`, `test/normal/` and `test/anomaly/<fault>/` instead.
+With one machine type, `normal/` (or `train/`) can sit directly in `<data_root>`. Symlinked files work, so you do
+not have to copy large datasets.
+
+Instead of moving files, you can list them in a manifest CSV (`folder.manifest: path/to/manifest.csv`):
+```
+path,label,split,fault,machine
+bearing1/run_003.wav,normal,,,
+bearing1/run_104.wav,anomaly,test,outer_race,
+```
+`path` is relative to `data_root`; `label` is `normal`/`anomaly` (or 0/1); empty `split` = automatic; `fault` and
+`machine` are optional.
+
+Files: `.wav`, `.flac`, `.ogg` (sample rate read from the file), or `.csv` / `.npy` with one column per channel
+(set `folder.sample_rate`; `folder.csv_header: true` if there is a header row). Choose the channels per sensor with
+`folder.sound_channels` and `folder.vibration_channels` (e.g. `[0, 1, 2]` for a 3-axis accelerometer); set both for
+`--modality fusion`. `folder.segment_seconds` cuts long recordings into clips, and `folder.files_per_fault` caps
+the faulty test files per fault type. Vibration keeps its own sample rate (`features.vibration.sample_rate: null`).
+
+```bash
+python -m msad.run --config configs/<name>.yaml --model ae --set seed=0
+```
+
 ## Train and evaluate
 
 ```bash
@@ -76,7 +109,11 @@ python scripts/make_synthetic.py dcase
 python -m msad.run --machine synth --model gmm knn ae --set data_root=data/synthetic ae.epochs=5
 python scripts/make_synthetic.py mafaulda
 python -m msad.run --config configs/mafaulda.yaml --modality sound vibration fusion --model knn ae --set data_root=data/synthetic_mafaulda ae.epochs=5
+python scripts/make_synthetic.py folder
+python -m msad.run --config configs/folder.yaml --model gmm knn ae --set data_root=data/synthetic_folder ae.epochs=5
 ```
+
+Unit tests: `python -m pytest` (after `uv sync`, which installs pytest).
 
 ## Features
 
@@ -119,15 +156,17 @@ combines them: `mean` (default, both sensors must agree) or `max` (either sensor
 ```
 configs/default.yaml           DCASE / shared settings
 configs/mafaulda.yaml          MaFaulDa settings (inherits default.yaml)
+configs/folder.yaml            template for any other dataset (folder layout or manifest)
 scripts/download_dcase2024.py
 scripts/download_mafaulda.py
 scripts/make_synthetic.py
-src/msad/data.py               datasets: list clips, labels, fault types; load sound / vibration signals
+src/msad/data.py               datasets (DCASE, MaFaulDa, generic folder): clips, labels, fault types, signals
 src/msad/features.py           log-mel features (cached in data/cache), frame stacking, clip stats
 src/msad/models.py             gmm / knn / autoencoder detectors, score-level fusion
 src/msad/metrics.py            AUC, pAUC, hmean, per-fault AUC, F1
 src/msad/run.py                train + evaluate CLI
 src/msad/predict.py            score new files
+tests/                         unit tests (python -m pytest)
 ```
 
 ## Working together

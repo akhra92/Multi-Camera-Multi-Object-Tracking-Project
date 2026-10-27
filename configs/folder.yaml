@@ -1,0 +1,29 @@
+# Any dataset, no code needed: arrange its files in the folder layout (or list them in a manifest CSV),
+# copy this file to configs/<name>.yaml and set data_root and the folder: section.
+# See README, "Adding a dataset without code". Everything not set here comes from default.yaml.
+inherit: default.yaml
+
+dataset: folder
+data_root: data/my_dataset
+modality: sound                # sound | vibration | fusion (needs both *_channels below)
+
+folder:
+  manifest: null               # CSV with columns path,label[,split][,fault][,machine]; null = folder layout
+  sample_rate: null            # required for .csv / .npy files (.wav / .flac / .ogg store their own)
+  csv_header: false            # true if the CSV files start with a header row
+  sound_channels: [0]          # channel(s) with sound; null if the dataset has no microphone
+  vibration_channels: null     # channel(s) with vibration, e.g. [0, 1, 2] for one 3-axis accelerometer
+  segment_seconds: null        # cut long recordings into clips of this many seconds; null = one clip per file
+  test_fraction: 0.3           # share of normal files held out for testing when there is no train/test split
+  files_per_fault: null        # cap on faulty test files per fault type; null = use all
+
+features:
+  vibration:
+    sample_rate: null          # keep the file's own sample rate
+    n_fft: 4096
+    hop_length: 1024
+    n_mels: 64                 # per channel
+    power: 2.0
+    fmin: 0
+    fmax: 10000                # capped at half the sample rate
+    n_frames: 5

@@ -15,7 +15,8 @@ from tqdm import tqdm
 
 def spectrogram(signal: np.ndarray, sr: int, cfg: dict) -> np.ndarray:
     """(channels, samples) -> (channels * n_mels, n_time) log-mel spectrogram in dB, as in the DCASE baseline."""
-    target_sr = cfg["sample_rate"]
+    target_sr = cfg.get("sample_rate") or sr  # null sample_rate = keep the signal's own rate
+    fmax = min(cfg.get("fmax") or target_sr / 2, target_sr / 2)
     specs = []
     for y in np.atleast_2d(signal):
         if sr != target_sr:
@@ -28,7 +29,7 @@ def spectrogram(signal: np.ndarray, sr: int, cfg: dict) -> np.ndarray:
             n_mels=cfg["n_mels"],
             power=cfg["power"],
             fmin=cfg.get("fmin", 0.0),
-            fmax=cfg.get("fmax"),
+            fmax=fmax,
         )
         specs.append(20.0 / cfg["power"] * np.log10(mel + np.finfo(np.float32).eps))
     return np.concatenate(specs).astype(np.float32)

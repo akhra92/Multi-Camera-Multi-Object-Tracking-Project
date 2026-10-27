@@ -5,12 +5,16 @@ dcase    - DCASE layout, sound only. Normal = motor hum + noise; anomaly adds a 
 mafaulda - MaFaulDa layout, 8-column CSV (tachometer, 2 x 3-axis accelerometer, microphone) at 50 kHz.
            Faults: imbalance (strong 1x rotation), misalignment (strong 2x), bearing outer race
            (impacts at 3x rotation ringing a 3 kHz resonance). Faults are clearer in vibration than in sound.
+folder   - generic folder layout (configs/folder.yaml): <out>/pump/normal/*.wav and
+           <out>/pump/anomaly/{whine,clicks}/*.wav, split into train/test automatically.
 
     python scripts/make_synthetic.py dcase --out data/synthetic
     python -m msad.run --machine synth --model gmm knn ae --set data_root=data/synthetic ae.epochs=5
     python scripts/make_synthetic.py mafaulda --out data/synthetic_mafaulda
     python -m msad.run --config configs/mafaulda.yaml --modality sound vibration fusion --model knn ae \
         --set data_root=data/synthetic_mafaulda ae.epochs=5
+    python scripts/make_synthetic.py folder --out data/synthetic_folder
+    python -m msad.run --config configs/folder.yaml --model gmm knn ae --set data_root=data/synthetic_folder ae.epochs=5
 """
 import argparse
 from pathlib import Path
@@ -23,8 +27,9 @@ def machine_sound(rng, f0, seconds, anomaly, sr=16000):
     t = np.arange(int(sr * seconds)) / sr
     y = sum(np.sin(2 * np.pi * f0 * h * t + rng.uniform(0, 6.3)) / h for h in range(1, 8))
     y = y * (1 + 0.05 * np.sin(2 * np.pi * 3 * t)) + rng.normal(0, 0.3, t.size)
-    if anomaly:
-        if rng.random() < 0.5:
+    if anomaly:  # True = random kind, or "whine" / "clicks"
+        kind = anomaly if isinstance(anomaly, str) else ("whine" if rng.random() < 0.5 else "clicks")
+        if kind == "whine":
             y += 0.25 * np.sin(2 * np.pi * rng.uniform(2500, 4000) * t)
         else:
             clicks = np.zeros_like(t)
@@ -84,9 +89,20 @@ def make_mafaulda(out: Path, seconds: float, rng):
     print(f"wrote synthetic MaFaulDa-style dataset to {out}")
 
 
+def make_folder(out: Path, seconds: float, rng):
+    sr = 16000
+    plan = {"normal": (False, 40), "anomaly/whine": ("whine", 10), "anomaly/clicks": ("clicks", 10)}
+    for folder, (anomaly, n) in plan.items():
+        (out / "pump" / folder).mkdir(parents=True, exist_ok=True)
+        for i in range(n):
+            y = machine_sound(rng, 50.0 * rng.uniform(0.97, 1.03), seconds, anomaly, sr)
+            sf.write(out / "pump" / folder / f"rec_{i:03d}.wav", y, sr)
+    print(f"wrote synthetic folder-layout dataset to {out}")
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("kind", choices=["dcase", "mafaulda"])
+    parser.add_argument("kind", choices=["dcase", "mafaulda", "folder"])
     parser.add_argument("--out", default=None)
     parser.add_argument("--machine", default="synth", help="dcase only")
     parser.add_argument("--seconds", type=float, default=2.0)
@@ -95,8 +111,10 @@ def main():
     rng = np.random.default_rng(0)
     if args.kind == "dcase":
         make_dcase(Path(args.out or "data/synthetic"), args.machine, args.seconds, rng)
-    else:
+    elif args.kind == "mafaulda":
         make_mafaulda(Path(args.out or "data/synthetic_mafaulda"), args.seconds, rng)
+    else:
+        make_folder(Path(args.out or "data/synthetic_folder"), args.seconds, rng)
 
 
 if __name__ == "__main__":
