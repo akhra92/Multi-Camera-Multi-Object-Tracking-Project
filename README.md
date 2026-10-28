@@ -7,6 +7,9 @@ combined. Models are trained on **normal operation only**, then flag anything th
 |---|---|---|
 | DCASE 2024 Task 2 | sound | benchmark on 7 machine types with published results to compare against |
 | MaFaulDa | sound + vibration, recorded together | comparing sound vs. vibration vs. fusion on the same machine |
+| MIMII (Hitachi) | sound | fans, pumps, slide rails, valves in factory noise (`configs/mimii.yaml`) |
+| Paderborn (KAt) | vibration | bearing damage, artificial and from lifetime tests (`configs/paderborn.yaml`) |
+| IMAD-DS | sound + vibration, recorded together | two machines with source/target domain shift (`configs/imad_ds.yaml`) |
 | Any other dataset | sound and/or vibration | no code needed: folder layout or manifest CSV (`configs/folder.yaml`) |
 
 ## Setup
@@ -50,6 +53,38 @@ How it is split (`configs/mafaulda.yaml`): 70% of normal files for training, 30%
 no recording appears in both train and test. With only ~15 normal test files, AUCs are noisy: compare models on
 several seeds (`--set seed=1`) before drawing conclusions.
 
+**MIMII** (sound, [Zenodo 3384388](https://doi.org/10.5281/zenodo.3384388), CC BY-SA 4.0). Fans, pumps, slide
+rails and valves, 4 machine IDs each, 8-channel microphone array, 16 kHz, 10 s per file. Every machine type comes
+with factory noise mixed in at -6, 0 and 6 dB, one zip each (6.6-10.4 GB). Each machine ID is evaluated on its
+own; 30% of normal files are held out for testing (there is no official split). No fault types are given.
+```bash
+python scripts/download_mimii.py --machines fan --snr 6        # prints the data_root to use
+python -m msad.run --config configs/mimii.yaml --model ae
+python -m msad.run --config configs/mimii.yaml --model ae --set data_root=data/mimii/-6dB/pump
+```
+
+**Paderborn (KAt)** (vibration, [bearing data center](https://mb.uni-paderborn.de/en/kat/main-research/datacenter/bearing-datacenter/data-sets-and-download)).
+32 ball bearings on a motor test rig: 6 healthy, 12 with artificial damage, 14 damaged in lifetime tests; 4
+operating conditions, 20 measurements of 4 s at 64 kHz each. Download the .rar archive of each bearing, extract
+them all into `data/paderborn_raw/` (7-Zip), then convert the MATLAB files. Each operating condition becomes a
+machine; healthy bearings K001-K004 train, K005-K006 test (split by bearing, so the test never sees a training
+bearing); fault types are `outer_race/artificial`, `inner_race/lifetime`, `combined/lifetime`, ...
+```bash
+python scripts/convert_paderborn.py --src data/paderborn_raw --out data/paderborn
+python -m msad.run --config configs/paderborn.yaml --model gmm knn ae
+```
+
+**IMAD-DS** (sound + vibration, [Zenodo 12665499](https://doi.org/10.5281/zenodo.12665499), CC BY-SA 4.0). A
+brushless motor and a robotic arm, recorded with a microphone (16 kHz), accelerometer and gyroscope (~7 kHz).
+Source/target domains (changed load or speed, background noise) as in DCASE, so runs report AUC(source),
+AUC(target) and hmean. Download `BrushlessMotor.7z` (1.6 GB) and/or `RoboticArm.7z` (3.5 GB), extract into
+`data/imad_ds_raw/` (7-Zip), then convert: sensors are aligned in time and resampled to 16 kHz, one .npy per
+segment plus `manifest.csv`. Vibration features stop at 3.5 kHz, half the accelerometer's rate.
+```bash
+python scripts/convert_imad_ds.py --src data/imad_ds_raw --out data/imad_ds    # --gyro adds the gyroscope
+python -m msad.run --config configs/imad_ds.yaml --modality sound vibration fusion --model ae
+```
+
 ### Adding a dataset without code
 
 Put the files in this layout (sub-folders deeper down are fine), copy `configs/folder.yaml` to
@@ -60,8 +95,8 @@ Put the files in this layout (sub-folders deeper down are fine), copy `configs/f
 <data_root>/<machine>/anomaly/<fault>/...     faulty recordings, test only; folder name = fault type
 ```
 If the dataset has an official split, use `train/normal/`, `test/normal/` and `test/anomaly/<fault>/` instead.
-With one machine type, `normal/` (or `train/`) can sit directly in `<data_root>`. Symlinked files work, so you do
-not have to copy large datasets.
+With one machine type, `normal/` (or `train/`) can sit directly in `<data_root>`. `abnormal/` works in place of
+`anomaly/`. Symlinked files work, so you do not have to copy large datasets.
 
 Instead of moving files, you can list them in a manifest CSV (`folder.manifest: path/to/manifest.csv`):
 ```
@@ -69,8 +104,8 @@ path,label,split,fault,machine
 bearing1/run_003.wav,normal,,,
 bearing1/run_104.wav,anomaly,test,outer_race,
 ```
-`path` is relative to `data_root`; `label` is `normal`/`anomaly` (or 0/1); empty `split` = automatic; `fault` and
-`machine` are optional.
+`path` is relative to `data_root`; `label` is `normal`/`anomaly` (or `abnormal`, 0/1); empty `split` = automatic;
+`fault` and `machine` are optional. An optional `domain` column (`source`/`target`) adds AUC per domain.
 
 Files: `.wav`, `.flac`, `.ogg` (sample rate read from the file), or `.csv` / `.npy` with one column per channel
 (set `folder.sample_rate`; `folder.csv_header: true` if there is a header row). Choose the channels per sensor with
@@ -157,8 +192,12 @@ combines them: `mean` (default, both sensors must agree) or `max` (either sensor
 configs/default.yaml           DCASE / shared settings
 configs/mafaulda.yaml          MaFaulDa settings (inherits default.yaml)
 configs/folder.yaml            template for any other dataset (folder layout or manifest)
+configs/mimii.yaml, paderborn.yaml, imad_ds.yaml   built on folder.yaml
 scripts/download_dcase2024.py
 scripts/download_mafaulda.py
+scripts/download_mimii.py
+scripts/convert_paderborn.py   MATLAB .mat -> .npy folder layout
+scripts/convert_imad_ds.py     Parquet -> .npy + manifest with domains
 scripts/make_synthetic.py
 src/msad/data.py               datasets (DCASE, MaFaulDa, generic folder): clips, labels, fault types, signals
 src/msad/features.py           log-mel features (cached in data/cache), frame stacking, clip stats

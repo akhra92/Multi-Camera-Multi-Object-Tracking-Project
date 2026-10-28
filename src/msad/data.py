@@ -237,9 +237,11 @@ class FolderDataset:
         <data_root>/<machine>/test/normal/...
         <data_root>/<machine>/test/anomaly/<fault>/...
     With a single machine type, the normal/ (or train/) folders may sit directly in <data_root>.
+    abnormal/ is accepted in place of anomaly/ (as in MIMII).
 
-    Manifest (folder.manifest): a CSV with columns path,label and optional split,fault,machine. path is
-    relative to data_root; label is normal/anomaly (or 0/1); an empty split means "split automatically".
+    Manifest (folder.manifest): a CSV with columns path,label and optional split,fault,machine,domain. path is
+    relative to data_root; label is normal/anomaly (or abnormal, 0/1); an empty split means "split
+    automatically"; domain is source/target (AUC reported per domain, as in DCASE) or empty.
 
     Files: .wav .flac .ogg (sample rate read from the file), .csv and .npy (one column per channel; set
     folder.sample_rate). folder.sound_channels / folder.vibration_channels pick the channels for each sensor.
@@ -250,7 +252,7 @@ class FolderDataset:
         self.cfg = cfg["folder"]
         self.seed = cfg.get("seed", 0)
         self.modalities = tuple(m for m in MODALITIES if self.cfg.get(f"{m}_channels") is not None)
-        self._splits: dict[str, dict[str, list[tuple[Path, int, str]]]] = {}
+        self._splits: dict[str, dict[str, list[tuple[Path, int, str, str | None]]]] = {}
 
     # -- listing ------------------------------------------------------------------------------------
 
@@ -259,7 +261,7 @@ class FolderDataset:
         missing = {"path", "label"} - set(df.columns)
         if missing:
             raise ValueError(f"manifest {self.cfg['manifest']} is missing column(s) {sorted(missing)}")
-        for col, default in (("split", ""), ("fault", ""), ("machine", self.root.name)):
+        for col, default in (("split", ""), ("fault", ""), ("machine", self.root.name), ("domain", "")):
             if col not in df.columns:
                 df[col] = default
         df["machine"] = df["machine"].replace("", self.root.name)
@@ -279,34 +281,38 @@ class FolderDataset:
             return self.root
         return self.root / machine
 
-    def _records(self, machine: str) -> list[tuple[Path, int, str | None, str]]:
-        """(path, label, split or None for automatic, fault type) for every file of a machine type."""
+    def _records(self, machine: str) -> list[tuple[Path, int, str | None, str, str | None]]:
+        """(path, label, split or None for automatic, fault type, domain) for every file of a machine type."""
         if self.cfg.get("manifest"):
             df = self._manifest()
             out = []
             for row in df[df["machine"] == machine].itertuples():
-                label = {"normal": 0, "0": 0, "anomaly": 1, "1": 1}.get(row.label.strip().lower())
+                label = {"normal": 0, "0": 0, "anomaly": 1, "abnormal": 1, "1": 1}.get(row.label.strip().lower())
                 if label is None:
                     raise ValueError(f"manifest label must be normal/anomaly or 0/1, got {row.label!r} ({row.path})")
+                domain = row.domain.strip().lower() or None
+                if domain not in (None, "source", "target"):
+                    raise ValueError(f"manifest domain must be source, target or empty, got {row.domain!r} ({row.path})")
                 path = Path(row.path) if Path(row.path).is_absolute() else self.root / row.path
-                out.append((path, label, row.split.strip().lower() or None, row.fault))
+                out.append((path, label, row.split.strip().lower() or None, row.fault, domain))
             return out
 
         mdir = self._machine_dir(machine)
 
-        def anomalies(folder: Path, split: str | None):
-            return [(p, 1, split, "/".join(p.relative_to(folder).parent.parts)) for p in _signal_files(folder)]
+        def anomalies(parent: Path, split: str | None):
+            return [(p, 1, split, "/".join(p.relative_to(folder).parent.parts), None)
+                    for folder in (parent / "anomaly", parent / "abnormal") for p in _signal_files(folder)]
 
         if (mdir / "train").is_dir():
             train_dir = mdir / "train" / "normal" if (mdir / "train" / "normal").is_dir() else mdir / "train"
-            return ([(p, 0, "train", "") for p in _signal_files(train_dir)]
-                    + [(p, 0, "test", "") for p in _signal_files(mdir / "test" / "normal")]
-                    + anomalies(mdir / "test" / "anomaly", "test"))
+            return ([(p, 0, "train", "", None) for p in _signal_files(train_dir)]
+                    + [(p, 0, "test", "", None) for p in _signal_files(mdir / "test" / "normal")]
+                    + anomalies(mdir / "test", "test"))
         if (mdir / "normal").is_dir():
-            return [(p, 0, None, "") for p in _signal_files(mdir / "normal")] + anomalies(mdir / "anomaly", "test")
+            return [(p, 0, None, "", None) for p in _signal_files(mdir / "normal")] + anomalies(mdir, "test")
         raise FileNotFoundError(f"{mdir} has neither normal/ nor train/ (see the FolderDataset docstring)")
 
-    def _make_splits(self, machine: str) -> dict[str, list[tuple[Path, int, str]]]:
+    def _make_splits(self, machine: str) -> dict[str, list[tuple[Path, int, str, str | None]]]:
         """Split by file (never by segment) so no recording appears in both train and test."""
         records = self._records(machine)
         if not records:
@@ -317,14 +323,14 @@ class FolderDataset:
         order = rng.permutation(len(auto_normal))
         n_test = round(len(auto_normal) * self.cfg.get("test_fraction", 0.3)) if auto_normal else 0
         test_idx = set(order[:max(1, n_test)]) if auto_normal else set()
-        for i, (p, label, _, fault) in enumerate(auto_normal):
-            splits["test" if i in test_idx else "train"].append((p, label, fault))
-        for p, label, split, fault in records:
+        for i, (p, label, _, fault, domain) in enumerate(auto_normal):
+            splits["test" if i in test_idx else "train"].append((p, label, fault, domain))
+        for p, label, split, fault, domain in records:
             if split is None and label == 0:
                 continue
             if split == "train" and label == 1:
                 continue  # training uses normal data only
-            splits["train" if split == "train" else "test"].append((p, label, fault))
+            splits["train" if split == "train" else "test"].append((p, label, fault, domain))
 
         limit = self.cfg.get("files_per_fault")
         if limit:
@@ -340,18 +346,20 @@ class FolderDataset:
             raise ValueError(f"machine {machine!r} has no normal training files")
         return splits
 
-    def _segments(self, path: Path, machine: str, label: int | None, fault: str) -> list[Clip]:
+    def _segments(self, path: Path, machine: str, label: int | None, fault: str,
+                  domain: str | None = None) -> list[Clip]:
         seconds = self.cfg.get("segment_seconds")
         if not seconds:
-            return [Clip(path, machine, "00", None, label, "", fault)]
+            return [Clip(path, machine, "00", domain, label, "", fault)]
         n_samples, sr = _info(path, self.cfg.get("csv_header", False), self.cfg.get("sample_rate"))
         n = max(1, n_samples // int(seconds * sr))
-        return [Clip(path, machine, "00", None, label, "", fault, i) for i in range(n)]
+        return [Clip(path, machine, "00", domain, label, "", fault, i) for i in range(n)]
 
     def clips(self, machine: str, split: str) -> list[Clip]:
         if machine not in self._splits:
             self._splits[machine] = self._make_splits(machine)
-        return [c for p, label, fault in self._splits[machine][split] for c in self._segments(p, machine, label, fault)]
+        return [c for p, label, fault, domain in self._splits[machine][split]
+                for c in self._segments(p, machine, label, fault, domain)]
 
     def file_clips(self, path: str | Path) -> list[Clip]:
         return self._segments(Path(path), self.root.name, None, "")
