@@ -1,11 +1,9 @@
-"""Anomaly detectors. All are trained on normal clips only and return one score per clip
-(higher = more anomalous). They work on any (n_bands, T) feature matrix, so the same models serve sound and vibration.
+"""Anomaly detectors, trained on normal clips only; one score per clip (higher = more anomalous).
+They work on any (n_bands, T) feature matrix, so the same model serves sound and vibration.
 
-- "gmm": Gaussian mixture on clip-level log-mel statistics; score = negative log-likelihood
-- "knn": distance to the k-th nearest normal training clip in the same feature space
-- "ae":  DCASE-style dense autoencoder on stacked log-mel frames; score = reconstruction error
-- FusionDetector: one detector per modality (sound, vibration); scores are standardised on normal training
-  clips and averaged (score-level fusion)
+- AutoencoderDetector: DCASE-style dense autoencoder on stacked log-mel frames; score = reconstruction error
+- FusionDetector: one autoencoder per modality (sound, vibration); scores are standardised on normal training
+  clips and combined (score-level fusion)
 
 After fit(), `train_scores_` holds scores of the normal training clips, used to set the decision threshold.
 """
@@ -14,13 +12,10 @@ from pathlib import Path
 import joblib
 import numpy as np
 import torch
-from sklearn.mixture import GaussianMixture
-from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import StandardScaler
 from torch import nn
 from tqdm import tqdm
 
-from .features import clip_stats, stack_frames
+from .features import stack_frames
 
 
 class Detector:
@@ -36,53 +31,6 @@ class Detector:
     @staticmethod
     def load(path: Path) -> "Detector":
         return joblib.load(path)
-
-
-class ClipStatsDetector(Detector):
-    def _features(self, specs):
-        return np.stack([clip_stats(s) for s in specs])
-
-    def fit(self, specs):
-        x = self._features(specs)
-        self.scaler = StandardScaler().fit(x)
-        x = self.scaler.transform(x)
-        self._fit(x)
-        self.train_scores_ = self._train_scores(x)
-        return self
-
-    def score(self, specs):
-        return self._score(self.scaler.transform(self._features(specs)))
-
-    def _train_scores(self, x):
-        return self._score(x)
-
-
-class GMMDetector(ClipStatsDetector):
-    def __init__(self, n_components=4, covariance_type="diag", seed=0):
-        self.gmm = GaussianMixture(n_components, covariance_type=covariance_type, random_state=seed)
-
-    def _fit(self, x):
-        self.gmm.fit(x)
-
-    def _score(self, x):
-        return -self.gmm.score_samples(x)
-
-
-class KNNDetector(ClipStatsDetector):
-    def __init__(self, k=1):
-        self.k = k
-
-    def _fit(self, x):
-        self.nn = NearestNeighbors(n_neighbors=self.k).fit(x)
-
-    def _score(self, x):
-        dist, _ = self.nn.kneighbors(x)
-        return dist[:, -1]
-
-    def _train_scores(self, x):
-        # leave-one-out: each training clip's nearest neighbour is itself, so skip it
-        dist, _ = self.nn.kneighbors(x, n_neighbors=self.k + 1)
-        return dist[:, -1]
 
 
 class _DenseAE(nn.Module):
@@ -223,15 +171,8 @@ class FusionDetector(Detector):
         super().save(path)
 
 
-def build(name: str, cfg: dict, modality: str = "sound") -> Detector:
+def build(cfg: dict, modality: str = "sound") -> Detector:
     if modality == "fusion":
-        return FusionDetector({m: build(name, cfg, m) for m in ("sound", "vibration")},
+        return FusionDetector({m: build(cfg, m) for m in ("sound", "vibration")},
                               method=cfg.get("fusion", {}).get("method", "mean"))
-    seed = cfg.get("seed", 0)
-    if name == "gmm":
-        return GMMDetector(**cfg["gmm"], seed=seed)
-    if name == "knn":
-        return KNNDetector(**cfg["knn"])
-    if name == "ae":
-        return AutoencoderDetector(n_frames=cfg["features"][modality]["n_frames"], **cfg["ae"], seed=seed)
-    raise ValueError(f"unknown model {name!r}; choose gmm, knn or ae")
+    return AutoencoderDetector(n_frames=cfg["features"][modality]["n_frames"], **cfg["ae"], seed=cfg.get("seed", 0))

@@ -54,7 +54,7 @@ def test_mimii_abnormal_folders(tmp_path):
     assert sum(c.label == 1 for c in test) == 3 and all(c.fault == "" for c in test)
     assert all(c.label == 0 for c in ds.clips("id_00", "train"))
     assert ds.load(test[0], "sound")[0].shape == (1, 8000)  # first of the 8 microphones
-    assert 0.0 <= run_one(ds, "id_00", "gmm", "sound", cfg)["auc_all"] <= 1.0
+    assert 0.0 <= run_one(ds, "id_00", "sound", cfg)["auc_all"] <= 1.0
 
 
 def test_manifest_abnormal_label_and_domain(tmp_path):
@@ -73,7 +73,7 @@ def test_manifest_abnormal_label_and_domain(tmp_path):
 
     test = ds.clips("raw", "test")
     assert {c.domain for c in test} == {"source", "target"} and sum(c.label == 1 for c in test) == 4
-    result = run_one(ds, "raw", "knn", "sound", cfg)
+    result = run_one(ds, "raw", "sound", cfg)
     assert {"auc_source", "auc_target", "hmean"} <= set(result)
 
     (tmp_path / "bad.csv").write_text("path,label,domain\n0.wav,normal,elsewhere\n")
@@ -119,7 +119,7 @@ def test_paderborn_converter(tmp_path):
     ds = get_dataset(cfg)
     assert ds.machines() == ["N15_M07_F10"] and ds.modalities == ("vibration",)
     assert len(ds.clips("N15_M07_F10", "train")) == 6 * 2  # 0.5 s files -> two 0.25 s clips
-    result = run_one(ds, "N15_M07_F10", "ae", "vibration", cfg)
+    result = run_one(ds, "N15_M07_F10", "vibration", cfg)
     assert {"auc_fault/outer_race/artificial", "auc_fault/inner_race/lifetime"} <= set(result)
 
 
@@ -173,5 +173,5 @@ def test_imad_ds_converter(tmp_path):
     ds = get_dataset(cfg)
     assert ds.machines() == ["BrushlessMotor"] and ds.modalities == ("sound", "vibration")
     assert len(ds.clips("BrushlessMotor", "train")) == 8
-    result = run_one(ds, "BrushlessMotor", "knn", "fusion", cfg)
+    result = run_one(ds, "BrushlessMotor", "fusion", cfg)
     assert {"auc_source", "auc_target", "auc_fault/imbalance"} <= set(result)

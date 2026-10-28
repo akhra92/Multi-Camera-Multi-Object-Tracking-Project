@@ -1,6 +1,6 @@
 # Paderborn (KAt) bearings: vibration only (64 kHz), converted to .npy by scripts/convert_paderborn.py.
 #   python scripts/convert_paderborn.py --src data/paderborn_raw --out data/paderborn
-#   python -m msad.run --config configs/paderborn.yaml --model ae
+#   python -m msad.run --config configs/paderborn.yaml
 # Each operating condition (N15_M07_F10, N09_M07_F10, N15_M01_F10, N15_M07_F04) is evaluated as its own machine.
 # The split is by bearing: K001-K004 train, K005-K006 test (change with --test-healthy when converting).
 inherit: folder.yaml

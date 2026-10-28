@@ -1,7 +1,7 @@
 # IMAD-DS: microphone + accelerometer recorded together on a brushless motor and a robotic arm, with
 # source/target domains. Converted to .npy + manifest by scripts/convert_imad_ds.py (all channels at 16 kHz).
 #   python scripts/convert_imad_ds.py --src data/imad_ds_raw --out data/imad_ds
-#   python -m msad.run --config configs/imad_ds.yaml --modality sound vibration fusion --model ae
+#   python -m msad.run --config configs/imad_ds.yaml --modality sound vibration fusion
 # Reports AUC(source), AUC(target), pAUC and hmean as for DCASE, plus AUC per anomaly type.
 inherit: folder.yaml
 

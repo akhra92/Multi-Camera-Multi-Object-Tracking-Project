@@ -72,7 +72,3 @@ def stack_frames(spec: np.ndarray, n_frames: int) -> np.ndarray:
         out[:, n_bands * i : n_bands * (i + 1)] = spec[:, i : i + n_vectors].T
     return out
 
-
-def clip_stats(spec: np.ndarray) -> np.ndarray:
-    """One vector per clip: mean and std of each band over time."""
-    return np.concatenate([spec.mean(axis=1), spec.std(axis=1)]).astype(np.float32)

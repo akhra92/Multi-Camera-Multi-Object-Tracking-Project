@@ -2,8 +2,8 @@
 (.wav for DCASE-style sound models, MaFaulDa-style .csv for vibration / fusion models). Files that are split into
 segments during training are scored per segment; the file score is the mean segment score.
 
-    python -m msad.predict --model-dir outputs/fan/sound/ae recordings/*.wav
-    python -m msad.predict --model-dir outputs/mafaulda/fusion/knn recordings/*.csv
+    python -m msad.predict --model-dir outputs/fan/sound recordings/*.wav
+    python -m msad.predict --model-dir outputs/mafaulda/fusion recordings/*.csv
 """
 import argparse
 import json

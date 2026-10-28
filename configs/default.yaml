@@ -25,13 +25,6 @@ ae:
   lr: 0.001
   val_fraction: 0.1
 
-# Clip-level classical models (features = mean + std of each band over time)
-gmm:
-  n_components: 4
-  covariance_type: diag
-knn:
-  k: 1
-
 # Decision threshold for normal/anomaly = this percentile of anomaly scores on training (normal) clips
 threshold_percentile: 90
 

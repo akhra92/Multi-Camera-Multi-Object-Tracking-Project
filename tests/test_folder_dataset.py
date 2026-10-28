@@ -88,7 +88,7 @@ def test_csv_channels_segments_and_fusion(tmp_path):
     snd, _ = ds.load(train[0], "sound")
     assert vib.shape == (3, SR) and snd.shape == (1, SR) and sr == SR
 
-    result = run_one(ds, "m", "knn", "fusion", cfg)
+    result = run_one(ds, "m", "fusion", cfg)
     assert 0.0 <= result["auc_all"] <= 1.0 and "auc_fault/imbalance" in result
 
 
@@ -125,7 +125,7 @@ def test_manifest_and_npy(tmp_path):
     signal, _ = ds.load(train[0], "sound")
     assert signal.shape == (1, SR)
 
-    result = run_one(ds, "raw", "gmm", "sound", cfg)
+    result = run_one(ds, "raw", "sound", cfg)
     assert {"auc_all", "pauc", "hmean", "f1"} <= set(result)
 
 

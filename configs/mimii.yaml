@@ -1,6 +1,6 @@
 # MIMII (Hitachi): sound only, 8-channel microphone array, 16 kHz, 10 s per file.
 #   python scripts/download_mimii.py --machines fan --snr 6
-#   python -m msad.run --config configs/mimii.yaml --model ae
+#   python -m msad.run --config configs/mimii.yaml
 # Each machine ID (id_00, id_02, ...) is evaluated as its own machine. Other machine type or noise level:
 #   --set data_root=data/mimii/-6dB/pump
 inherit: folder.yaml

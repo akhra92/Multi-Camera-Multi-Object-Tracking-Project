@@ -1,9 +1,8 @@
-"""Train an anomaly detector on normal clips and evaluate it on the labelled test set.
+"""Train the autoencoder on normal clips and evaluate it on the labelled test set.
 
-    python -m msad.run --machine fan --model ae                              # DCASE 2024, sound
-    python -m msad.run --machine all --model gmm knn ae
-    python -m msad.run --config configs/mafaulda.yaml --modality sound vibration fusion --model knn ae
-    python -m msad.run --machine fan --model ae --set ae.epochs=20 data_root=data/other
+    python -m msad.run --machine fan                                         # DCASE 2024, sound
+    python -m msad.run --config configs/mafaulda.yaml --modality sound vibration fusion
+    python -m msad.run --machine fan --set ae.epochs=20 seed=1
 """
 import argparse
 import csv
@@ -54,8 +53,8 @@ def load_features(dataset, clips, modality: str, cfg: dict, desc: str):
     return feats if modality == "fusion" else feats[modality]
 
 
-def run_one(dataset, machine: str, model_name: str, modality: str, cfg: dict) -> dict:
-    out_dir = Path(cfg["output_dir"]) / machine / modality / model_name
+def run_one(dataset, machine: str, modality: str, cfg: dict) -> dict:
+    out_dir = Path(cfg["output_dir"]) / machine / modality
     out_dir.mkdir(parents=True, exist_ok=True)
 
     train = [c for c in dataset.clips(machine, "train") if c.label in (0, None)]
@@ -64,7 +63,7 @@ def run_one(dataset, machine: str, model_name: str, modality: str, cfg: dict) ->
     x_test = load_features(dataset, test, modality, cfg, f"{machine} test")
 
     t0 = time.time()
-    model = build(model_name, cfg, modality).fit(x_train)
+    model = build(cfg, modality).fit(x_train)
     fit_seconds = time.time() - t0
 
     threshold = float(np.percentile(model.train_scores_, cfg["threshold_percentile"]))
@@ -72,7 +71,7 @@ def run_one(dataset, machine: str, model_name: str, modality: str, cfg: dict) ->
     per_modality = model.modality_scores(x_test) if modality == "fusion" else {}
 
     model.save(out_dir / "model.joblib")
-    meta = {"threshold": threshold, "modality": modality, "model": model_name, "machine": machine, "config": cfg}
+    meta = {"threshold": threshold, "modality": modality, "machine": machine, "config": cfg}
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=1))
     with open(out_dir / "test_scores.csv", "w", newline="") as f:
         w = csv.writer(f)
@@ -86,7 +85,7 @@ def run_one(dataset, machine: str, model_name: str, modality: str, cfg: dict) ->
         (out_dir / "history.json").write_text(json.dumps(histories, indent=1))
 
     result = {"dataset": cfg.get("dataset", "dcase2024"), "machine": machine, "modality": modality,
-              "model": model_name, "n_train": len(train), "n_test": len(test), "fit_seconds": round(fit_seconds, 1)}
+              "model": "ae", "n_train": len(train), "n_test": len(test), "fit_seconds": round(fit_seconds, 1)}
     if all(c.label is not None for c in test):
         result |= evaluate(test, test_scores, threshold, cfg["max_fpr"])
     (out_dir / "results.json").write_text(json.dumps(result, indent=1))
@@ -99,7 +98,6 @@ def main() -> None:
     parser.add_argument("--machine", nargs="+", default=["all"], help="machine type(s) or 'all' (default)")
     parser.add_argument("--modality", nargs="+", choices=[*MODALITIES, "fusion"],
                         help="default: the config's `modality`")
-    parser.add_argument("--model", nargs="+", default=["ae"], choices=["gmm", "knn", "ae"])
     parser.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE", help="override config values")
     args = parser.parse_args()
 
@@ -118,12 +116,11 @@ def main() -> None:
     results = []
     for machine in machines:
         for modality in modalities:
-            for model_name in args.model:
-                r = run_one(dataset, machine, model_name, modality, cfg)
-                results.append(r)
-                keys = ("auc_source", "auc_target", "auc_all", "pauc", "hmean", "f1")
-                metrics = "  ".join(f"{k}={r[k]:.3f}" for k in keys if k in r)
-                print(f"[{machine:>9} | {modality:>9} | {model_name:>3}] {metrics}  ({r['fit_seconds']}s)")
+            r = run_one(dataset, machine, modality, cfg)
+            results.append(r)
+            keys = ("auc_source", "auc_target", "auc_all", "pauc", "hmean", "f1")
+            metrics = "  ".join(f"{k}={r[k]:.3f}" for k in keys if k in r)
+            print(f"[{machine:>9} | {modality:>9}] {metrics}  ({r['fit_seconds']}s)")
 
     summary = Path(cfg["output_dir"]) / "results.csv"
     fields = ["dataset", "machine", "modality", "model", "auc_source", "auc_target", "auc_all", "pauc", "hmean",

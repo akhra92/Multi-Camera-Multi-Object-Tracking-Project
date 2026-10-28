@@ -9,12 +9,12 @@ folder   - generic folder layout (configs/folder.yaml): <out>/pump/normal/*.wav 
            <out>/pump/anomaly/{whine,clicks}/*.wav, split into train/test automatically.
 
     python scripts/make_synthetic.py dcase --out data/synthetic
-    python -m msad.run --machine synth --model gmm knn ae --set data_root=data/synthetic ae.epochs=5
+    python -m msad.run --machine synth --set data_root=data/synthetic ae.epochs=5
     python scripts/make_synthetic.py mafaulda --out data/synthetic_mafaulda
-    python -m msad.run --config configs/mafaulda.yaml --modality sound vibration fusion --model knn ae \
+    python -m msad.run --config configs/mafaulda.yaml --modality sound vibration fusion \
         --set data_root=data/synthetic_mafaulda ae.epochs=5
     python scripts/make_synthetic.py folder --out data/synthetic_folder
-    python -m msad.run --config configs/folder.yaml --model gmm knn ae --set data_root=data/synthetic_folder ae.epochs=5
+    python -m msad.run --config configs/folder.yaml --set data_root=data/synthetic_folder ae.epochs=5
 """
 import argparse
 from pathlib import Path
