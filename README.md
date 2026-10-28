@@ -117,15 +117,6 @@ the faulty test files per fault type. Vibration keeps its own sample rate (`feat
 python -m msad.run --config configs/<name>.yaml --model ae --set seed=0
 ```
 
-## Explore the data first
-
-Before training, explore every downloaded dataset: counts, quality checks (duplicates, train/test leakage,
-clipping, silent clips), example waveforms and spectrograms, spectra and statistics per fault type, how separable
-faults are, and distribution shift. See [exploration/README.md](exploration/README.md).
-```bash
-python -m exploration --all          # -> outputs/exploration/overview.md + <dataset>/report.md
-```
-
 ## Train and evaluate
 
 ```bash
@@ -214,7 +205,6 @@ src/msad/models.py             gmm / knn / autoencoder detectors, score-level fu
 src/msad/metrics.py            AUC, pAUC, hmean, per-fault AUC, F1
 src/msad/run.py                train + evaluate CLI
 src/msad/predict.py            score new files
-exploration/                   dataset exploration reports (python -m exploration)
 tests/                         unit tests (python -m pytest)
 ```
 
