@@ -1,6 +1,6 @@
 """Convert the Paderborn (KAt) bearing dataset from MATLAB .mat files to .npy in the folder layout.
 
-Dataset: https://mb.uni-paderborn.de/en/kat/main-research/datacenter/bearing-datacenter/data-sets-and-download
+Dataset: https://mb.uni-paderborn.de/kat/forschung/bearing-datacenter/data-sets-and-download
 32 ball bearings (type 6203) on an electric motor test rig: 6 healthy, 12 with artificial damage, 14 with damage
 from accelerated lifetime tests. Each bearing has one .rar archive (download all of them and extract with 7-Zip
 into one folder). Inside: <bearing>/N15_M07_F10_KA01_1.mat, i.e. operating condition (rotation speed N x100 rpm,

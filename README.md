@@ -63,7 +63,7 @@ python -m msad.run --config configs/mimii.yaml --model ae
 python -m msad.run --config configs/mimii.yaml --model ae --set data_root=data/mimii/-6dB/pump
 ```
 
-**Paderborn (KAt)** (vibration, [bearing data center](https://mb.uni-paderborn.de/en/kat/main-research/datacenter/bearing-datacenter/data-sets-and-download)).
+**Paderborn (KAt)** (vibration, [bearing data center](https://mb.uni-paderborn.de/kat/forschung/bearing-datacenter/data-sets-and-download)).
 32 ball bearings on a motor test rig: 6 healthy, 12 with artificial damage, 14 damaged in lifetime tests; 4
 operating conditions, 20 measurements of 4 s at 64 kHz each. Download the .rar archive of each bearing, extract
 them all into `data/paderborn_raw/` (7-Zip), then convert the MATLAB files. Each operating condition becomes a
