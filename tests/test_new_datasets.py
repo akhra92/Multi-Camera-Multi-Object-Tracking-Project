@@ -1,4 +1,4 @@
-"""MIMII (abnormal/ folders), Paderborn and IMAD-DS converters, on tiny synthetic stand-ins for each dataset."""
+"""MIMII (abnormal/ folders), Paderborn, IMAD-DS and Bosch CNC Machining converters, on tiny synthetic stand-ins."""
 import importlib.util
 from pathlib import Path
 
@@ -175,3 +175,44 @@ def test_imad_ds_converter(tmp_path):
     assert len(ds.clips("BrushlessMotor", "train")) == 8
     result = run_one(ds, "BrushlessMotor", "fusion", cfg)
     assert {"auc_source", "auc_target", "auc_fault/imbalance"} <= set(result)
+
+
+# ---------------------------------------------------------------- Bosch CNC Machining: <machine>/<process>/<good|bad>/*.h5
+
+def write_cnc_h5(path: Path, rng, anomaly: bool, seconds=1.0):
+    import h5py
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = 1000 * signal(rng, int(2000 * seconds), 3, anomaly, sr=2000).astype(np.float64)
+    data[:, 2] -= 1000  # gravity on Z
+    with h5py.File(path, "w") as f:
+        f["vibration_data"] = data
+
+
+def test_cnc_machining_converter(tmp_path):
+    rng = np.random.default_rng(4)
+    src, out = tmp_path / "cnc_raw" / "data", tmp_path / "cnc_machining"
+    for period in ("Feb_2019", "Aug_2019", "Feb_2021"):
+        for idx in range(2):
+            write_cnc_h5(src / "M01" / "OP01" / "good" / f"M01_{period}_OP01_{idx:03d}.h5", rng, False)
+    write_cnc_h5(src / "M01" / "OP01" / "bad" / "M01_Aug_2019_OP01_000.h5", rng, True)  # same name as a good run
+    write_cnc_h5(src / "M01" / "OP07" / "bad" / "M01_Feb_2021_OP07_000.h5", rng, True)
+    (src / "M01" / "OP07" / "bad" / "M01_Feb_2021_OP07_001.h5").write_bytes(b"not an h5 file")
+    write_cnc_h5(src / "M01" / "OP01" / "other" / "M01_Feb_2019_OP01_009.h5", rng, False)  # unknown label folder
+
+    convert = load_script("convert_cnc_machining").convert
+    counts = convert(tmp_path / "cnc_raw", out, test_periods=["Feb_2021"])
+    assert counts == {"converted": 8, "existing": 0, "skipped": 2}
+    machine = out / "M01"
+    assert len(list((machine / "train" / "normal").glob("*.npy"))) == 4
+    assert len(list((machine / "test" / "normal").glob("M01_Feb_2021_*.npy"))) == 2
+    assert [p.name for p in (machine / "test" / "anomaly" / "OP01").glob("*.npy")] == ["M01_Aug_2019_OP01_000.npy"]
+    data = np.load(machine / "test" / "anomaly" / "OP07" / "M01_Feb_2021_OP07_000.npy")
+    assert data.shape == (2000, 3) and data.dtype == np.float32
+    assert convert(tmp_path / "cnc_raw", out, ["Feb_2021"])["existing"] == 8
+
+    cfg = make_cfg(tmp_path, "cnc_machining.yaml", out, segment_seconds=0.5)
+    ds = get_dataset(cfg)
+    assert ds.machines() == ["M01"] and ds.modalities == ("vibration",)
+    assert len(ds.clips("M01", "train")) == 4 * 2  # 1 s runs -> two 0.5 s clips
+    result = run_one(ds, "M01", "vibration", cfg)
+    assert {"auc_fault/OP01", "auc_fault/OP07"} <= set(result)

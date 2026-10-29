@@ -1,0 +1,27 @@
+# Bosch CNC Machining: vibration only (3 axes, 2 kHz) from 3 CNC milling machines, converted to .npy by
+# scripts/convert_cnc_machining.py.
+#   git clone https://github.com/boschresearch/CNC_Machining data/cnc_machining_raw
+#   python scripts/convert_cnc_machining.py --src data/cnc_machining_raw --out data/cnc_machining
+#   python -m msad.run --config configs/cnc_machining.yaml
+# Each machine (M01, M02, M03) is evaluated on its own, all 15 processes together; auc_fault/<process> shows how well
+# each process's bad runs are found. The split is by period: good runs from Feb_2021 and Aug_2021 are the normal test
+# set, earlier periods train (change with --test-periods when converting). All bad runs are test only.
+inherit: folder.yaml
+
+data_root: data/cnc_machining
+modality: vibration
+
+folder:
+  sample_rate: 2000
+  sound_channels: null           # no microphone
+  vibration_channels: [0, 1, 2]  # X, Y, Z
+  segment_seconds: 1.0           # each 20-70 s run becomes 20-70 clips
+
+features:
+  vibration:
+    sample_rate: null            # keep 2 kHz
+    n_fft: 256                   # ~8 Hz bins
+    hop_length: 64
+    n_mels: 32                   # per axis -> 3 x 32 = 96 bands
+    fmin: 5                      # drop the DC offset (gravity on Z)
+    fmax: 1000                   # half the sample rate
