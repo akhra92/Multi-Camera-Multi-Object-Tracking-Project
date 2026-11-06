@@ -1,0 +1,29 @@
+data_root: data/Wildtrack
+frames: all             # all (400 frames) | test (last 40, the standard 90/10 split) | train; nothing is trained here
+output_dir: outputs/wildtrack
+
+detector:               # COCO-pretrained YOLO, class "person" only
+  weights: yolo11m.pt
+  imgsz: 1280           # 1920x1080 frames; 1280 keeps small, far-away people detectable
+  conf: 0.3
+  device: 0             # GPU index, or "cpu"
+
+tracker:                # DeepSORT, one per camera; frames are 2 fps, so ages are in 0.5 s steps
+  max_age: 5            # missed frames before a track is deleted (2.5 s)
+  n_init: 2             # hits before a track is confirmed
+  max_iou_distance: 0.7
+  max_cosine_distance: 0.3
+  nn_budget: 50         # appearance gallery size per track
+
+association:            # cameras -> one point per person (fuse), then ground-plane tracking (global ids)
+  area_margin_cm: 0     # drop boxes whose feet land outside the annotated 12 m x 36 m area (+ margin)
+  fuse_radius_cm: 125   # ground points of different cameras closer than this are one person
+  min_cameras: 2        # a person must be seen by >= 2 cameras (single-camera points are mostly projection noise)
+  max_step_cm: 100      # max move between frames (0.5 s) to continue a global track
+  vote_weight: 1.0      # weight of DeepSORT id continuity vs ground distance
+  max_age: 5            # frames a global track survives unseen
+  min_length: 5         # drop global tracks shorter than this (frames)
+
+evaluation:
+  iou_threshold: 0.5    # box match in each camera
+  ground_dist_cm: 100   # position match on the ground plane (1 m)

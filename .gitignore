@@ -1,8 +1,7 @@
+data
 data/
 outputs/
 .venv/
 __pycache__/
 *.egg-info/
-
-# local-only dataset exploration tool
-exploration/
+*.pt

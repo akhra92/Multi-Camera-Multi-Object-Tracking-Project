@@ -1,88 +1,97 @@
-# Machine Fault Detection from Sound and Vibration
+# Multi-Camera Multi-Object Tracking
 
-Unsupervised fault detection from **sound** (microphones) and **vibration** (accelerometers), alone or combined.
-An autoencoder is trained on normal operation only and flags recordings that sound or vibrate differently.
+Track every pedestrian across 7 overlapping cameras and give each person **one identity in all cameras**, on the
+[WILDTRACK](https://www.epfl.ch/labs/cvlab/data/data-wildtrack/) dataset. The pipeline uses only pretrained models
+(no training):
+
+```
+7 camera frames ─► YOLO11 person detection ─► appearance embedding ─► DeepSORT (one tracker per camera)
+                                                                                │  local tracks
+                                       foot point ─► ground plane (calibration) ┘
+                                                          │
+           fuse cameras per frame (same place = same person) ─► ground-plane tracking ─► global ids ─► MOTA / IDF1
+```
 
 ## Setup
 
 ```bash
-uv sync
-source .venv/bin/activate
+uv sync                                   # Python 3.10-3.12, CUDA PyTorch
+bash scripts/download_wildtrack.sh        # ~6.8 GB -> data/Wildtrack
+uv run pytest                             # unit tests (+ a calibration check once the data is present)
 ```
-GPU: needs an NVIDIA driver with CUDA 12.8+ (`nvidia-smi`); for older drivers set the PyTorch index in
-`pyproject.toml` to `cu126` or `cu124`. On Windows with a long project path, put the venv at a short path first:
-`set UV_PROJECT_ENVIRONMENT=C:\venvs\msad`.
 
-## Data
-
-To be added after dataset selection.
-
-### Adding a dataset
-
-Copy `configs/folder.yaml` to `configs/<name>.yaml`, set `data_root` and the `folder:` section, and arrange the files:
-```
-<data_root>/<machine>/normal/...            normal recordings, split into train/test by file
-<data_root>/<machine>/anomaly/<fault>/...   faulty recordings (test only); folder name = fault type
-```
-With an official split use `train/normal/`, `test/normal/`, `test/anomaly/<fault>/`. Or list the files in a manifest
-CSV (`folder.manifest`) with columns `path,label[,split,fault,machine,domain]`.
-
-Files: `.wav` / `.flac` / `.ogg`, or `.csv` / `.npy` with one column per channel (set `folder.sample_rate`).
-`folder.sound_channels` and `folder.vibration_channels` pick the channels per sensor (set both for fusion).
-
-## Train and evaluate
+## Run
 
 ```bash
-python -m msad.run --config configs/<name>.yaml --set seed=0
-python -m msad.run --config configs/<name>.yaml --modality sound vibration fusion
-```
-`--machine` picks machine types (default: all), `--set key=value` overrides any config value. Results go to
-`outputs/<machine>/<modality>/` (model, threshold, per-clip scores) and one row per run to `outputs/results.csv`.
-
-Score new recordings:
-```bash
-python -m msad.predict --model-dir outputs/<machine>/<modality> path/to/*.wav
+uv run python -m mcmot.run                                   # all 400 frames, writes outputs/wildtrack/
+uv run python -m mcmot.run --set frames=test                 # standard test split (last 40 frames)
+uv run python -m mcmot.run --set tracker.max_age=10 association.max_ground_dist_cm=75 --no-video
 ```
 
-Smoke test without data: `python scripts/make_synthetic.py folder`, then
-`python -m msad.run --config configs/folder.yaml --set data_root=data/synthetic_folder ae.epochs=5`.
-Unit tests: `python -m pytest`.
+Outputs in `outputs/wildtrack/`: `metrics.json`, `tracks_per_camera.csv` (box, local id, global id, ground
+position per camera and frame), `tracks_ground.csv` (one ground position per person and frame), `tracking.mp4`
+(7 views + bird's-eye view).
 
-## Model
+## Dataset: WILDTRACK
 
-Dense autoencoder (DCASE baseline) on 5 stacked log-mel frames; anomaly score = reconstruction error. Settings in
-the `ae:` section of `configs/default.yaml`. Vibration uses log-mel spectrograms at its own sample rate.
-`--modality fusion` trains one autoencoder per sensor and combines their standardised scores (`fusion.method`:
-`mean` or `max`).
+7 synchronised HD cameras (1920x1080) filming a square at EPFL, with heavily overlapping views. 400 annotated frames
+per camera at 2 fps (every 5th frame of the 10 fps video), 313 pedestrian identities. Each annotation gives a person's
+position on a 12 m x 36 m ground grid (2.5 cm cells) plus their box in every camera that sees them. All cameras are
+calibrated (intrinsics + extrinsics), which is what makes cross-camera association possible.
+
+## Pipeline
+
+| Step | Module | What happens |
+|---|---|---|
+| 1. Load | `wildtrack.py` | Read the 7 images of a frame (already undistorted), annotations and calibration. |
+| 2. Detect | `detection.py` | COCO-pretrained YOLO11m, class *person*, input 1280 px, confidence ≥ 0.3. |
+| 3. Embed | `tracking.py` | Crop every box, resize to 224x224, MobileNetV2 features (1280-d, L2-normalised). |
+| 4. Track per camera | `tracking.py` | DeepSORT: Kalman-filter motion prediction + Hungarian matching on appearance (cosine) gated by motion, then IoU. Confirmed after 2 hits, dropped after 5 missed frames. |
+| 5. Project | `geometry.py` | Bottom-centre of each box (the feet) → ground plane via the homography `H = K [r1 r2 t]`. Boxes whose feet land outside the annotated area are dropped (WILDTRACK labels only that area). |
+| 6. Fuse cameras | `association.py` | Per frame, ground points of different cameras within 1.25 m are one person (complete linkage, at most one box per camera). Position = mean. People seen by only one camera are dropped: those points are mostly occluded boxes projected to the wrong place. |
+| 7. Track on the ground | `association.py` | Hungarian matching of fused people to global tracks: cost = distance to the predicted position (constant velocity, gate 1 m per 0.5 s) − share of the person's DeepSORT ids that already belong to that track (ID votes). New tracks for unmatched people; tracks end after 5 unseen frames; tracks shorter than 5 frames are dropped. |
+| 8. Evaluate | `evaluate.py` | MOTA / IDF1 per camera, across cameras, and on the ground plane. |
 
 ## Metrics
 
-| Metric | Meaning |
+| Name | Measures |
 |---|---|
-| AUC source / target | normal vs. anomalous clips per domain, if the dataset has domains |
-| AUC all | all test clips |
-| pAUC | AUC at false-positive rate ≤ 0.1 |
-| hmean | harmonic mean of the AUCs and pAUC; main comparison number |
-| auc_fault/\<type\> | normal vs. one fault type (in `results.json`) |
-| precision / recall / F1 | at the 90th percentile of normal training scores (`threshold_percentile`) |
+| **MOTA** | 1 − (misses + false positives + id switches) / ground-truth objects. Detection-dominated. |
+| **IDF1** | Share of detections assigned the correct identity over time. Identity-dominated. |
+| per camera C1–C7 | Single-camera tracking (local DeepSORT ids, box IoU ≥ 0.5). |
+| cross_camera | All cameras together with global ids: a person must keep the same id in every camera. |
+| ground | Ground-plane positions with global ids (match within 1 m), the usual WILDTRACK tracking metric. |
 
-## Layout
+## Results
 
-```
-configs/default.yaml     shared settings (features, autoencoder, metrics)
-configs/folder.yaml      template for a new dataset
-scripts/make_synthetic.py
-src/msad/data.py         dataset loaders
-src/msad/features.py     log-mel features (cached in data/cache)
-src/msad/models.py       autoencoder, score-level fusion
-src/msad/metrics.py      AUC, pAUC, hmean, per-fault AUC, F1
-src/msad/run.py          train + evaluate
-src/msad/predict.py      score new files
-tests/
-```
+Pretrained models only, RTX 3090, ~8 min for 400 frames x 7 cameras (detection dominates).
 
-## Working together
+| View | All 400 frames: MOTA | IDF1 | Precision | Recall | Test split (last 40): MOTA | IDF1 |
+|---|---|---|---|---|---|---|
+| **ground** (1 m) | **0.492** | **0.580** | 0.787 | 0.715 | **0.637** | **0.753** |
+| cross_camera (boxes, global ids) | 0.319 | 0.418 | 0.776 | 0.508 | 0.358 | 0.540 |
+| per camera, mean C1-C7 | 0.275 | 0.445 | 0.760 | 0.530 | 0.315 | 0.511 |
 
-Tasks, datasets and experiments are tracked in Notion. Branch from `main` (`git switch -c <ID>-short-name`), open
-a pull request, and the other person reviews before merging. Log runs worth keeping in Notion *Experiments*.
-Never commit `data/` or `outputs/`.
+313 people in the ground truth, 283 global identities found. Camera C4 is the weak one (MOTA −0.31): it sees mostly
+the edge of the area, where few people are annotated. The association settings (`fuse_radius_cm`, `min_cameras`)
+were chosen by comparing a few values on all 400 frames, so treat these numbers as a baseline, not a benchmark
+result. For comparison, published multi-view trackers trained on WILDTRACK reach ground MOTA around 0.85-0.9.
+
+What the association redesign changed (same detections and DeepSORT tracks, all frames, ground plane):
+
+| Association | MOTA | IDF1 |
+|---|---|---|
+| Tracklet clustering, all boxes | −0.439 | 0.450 |
+| + drop boxes outside the annotated area | −0.274 | 0.470 |
+| Fuse per frame + ground tracking (1 camera enough) | 0.239 | 0.482 |
+| + require ≥ 2 cameras (final) | 0.492 | 0.580 |
+
+## Known limitations / next steps
+
+- The appearance model is an ImageNet MobileNetV2, not a person re-identification model; swapping in a ReID model
+  (e.g. OSNet trained on Market-1501) should reduce DeepSORT identity switches, which the ground tracker inherits.
+- Requiring 2 cameras removes most false positives but also people only one camera sees (recall 0.72).
+- 2 fps is coarse for a Kalman filter: people move up to ~1 m between frames.
+- Feet of people cut off by the image border or occluded project to wrong ground positions.
+- Detection is per camera; multi-view detectors (MVDet, EarlyBird) fuse all views before detecting and are much
+  stronger on WILDTRACK's crowded, occluded scenes.

@@ -1,19 +1,18 @@
 [project]
-name = "machine-sound-anomaly"
+name = "mcmot"
 version = "0.1.0"
-description = "Unsupervised machine fault detection from sound and vibration"
+description = "Multi-camera multi-object tracking: YOLO detection, DeepSORT per camera, ground-plane cross-camera association (WILDTRACK)"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "numpy>=1.26",
     "pandas>=2.2",
-    "pyarrow>=15",  # Parquet files (IMAD-DS)
-    "h5py>=3.10",  # HDF5 files (Bosch CNC Machining)
-    "matplotlib>=3.8",  # figures (exploration/)
     "scipy>=1.11",
-    "librosa>=0.10",
-    "soundfile>=0.12",
-    "scikit-learn>=1.4",
+    "opencv-python>=4.9",
     "torch>=2.4",
+    "torchvision>=0.19",
+    "ultralytics>=8.3",          # YOLO person detector
+    "deep-sort-realtime>=1.3.2",  # DeepSORT tracker + MobileNetV2 appearance embedder
+    "motmetrics>=1.4",           # MOTA / IDF1
     "pyyaml>=6.0",
     "tqdm>=4.66",
 ]
@@ -29,11 +28,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/msad"]
+packages = ["src/mcmot"]
 
-# CUDA build of PyTorch (works on the RTX 4060). Remove this block to get the CPU build.
+# CUDA build of PyTorch. Remove this block to get the CPU build.
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
