@@ -2,7 +2,15 @@
 
 Track every pedestrian across 7 overlapping cameras and give each person **one identity in all cameras**, on the
 [WILDTRACK](https://www.epfl.ch/labs/cvlab/data/data-wildtrack/) dataset. The pipeline uses only pretrained models
-(no training):
+(no training).
+
+![Tracking demo: cameras C1, C3, C6 and the bird's-eye view](assets/demo.gif)
+
+*Model predictions on WILDTRACK (20 s of the 2 fps sequence, played at 2x). Box colour and number = global identity:
+the same person keeps the same number in every camera. Bird's-eye view: coloured dots and trails = tracker, grey rings
+= ground truth.*
+
+Pipeline:
 
 ```
 7 camera frames ─► YOLO11 person detection ─► appearance embedding ─► DeepSORT (one tracker per camera)
@@ -25,12 +33,19 @@ uv run pytest                             # unit tests (+ a calibration check on
 ```bash
 uv run python -m mcmot.run                                   # all 400 frames, writes outputs/wildtrack/
 uv run python -m mcmot.run --set frames=test                 # standard test split (last 40 frames)
-uv run python -m mcmot.run --set tracker.max_age=10 association.max_ground_dist_cm=75 --no-video
+uv run python -m mcmot.run --set tracker.max_age=10 association.fuse_radius_cm=100 --no-video
 ```
 
 Outputs in `outputs/wildtrack/`: `metrics.json`, `tracks_per_camera.csv` (box, local id, global id, ground
 position per camera and frame), `tracks_ground.csv` (one ground position per person and frame), `tracking.mp4`
 (7 views + bird's-eye view).
+
+All seven cameras at one moment:
+
+![All 7 cameras and the bird's-eye view at one frame](assets/demo_all_cameras.jpg)
+
+Regenerate both images from a finished run (no models needed): `uv run python scripts/make_demo.py`
+(`--cams`, `--start`, `--frames` choose the cameras and the time window).
 
 ## Dataset: WILDTRACK
 
