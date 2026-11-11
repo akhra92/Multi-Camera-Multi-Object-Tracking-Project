@@ -19,6 +19,7 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
+app = ["streamlit>=1.40", "imageio-ffmpeg>=0.5"]  # Streamlit demo (uv sync --group app)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

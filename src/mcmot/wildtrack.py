@@ -80,7 +80,8 @@ class Wildtrack:
         return {"all": self.frames, "train": self.frames[:n], "test": self.frames[n:]}[which]
 
     def image_path(self, cam: int, frame: int) -> Path:
-        return self.image_dir / f"C{cam + 1}" / f"{frame:08d}.png"
+        path = self.image_dir / f"C{cam + 1}" / f"{frame:08d}.png"
+        return path if path.exists() else path.with_suffix(".jpg")  # the small app sample is stored as JPEG
 
     def read_images(self, frame: int) -> list[np.ndarray]:
         """BGR images of all cameras at one frame."""

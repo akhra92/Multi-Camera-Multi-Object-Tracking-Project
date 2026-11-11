@@ -14,14 +14,22 @@ def id_color(i: int) -> tuple[int, int, int]:
     return int(b * 255), int(g * 255), int(r * 255)
 
 
-def draw_camera(img: np.ndarray, rows: list[dict], cam: int) -> np.ndarray:
+def draw_boxes(img: np.ndarray, rows: list[dict], id_key: str = "global_id") -> np.ndarray:
+    """Boxes coloured and numbered by identity. Line width and font scale with the image (tuned for 1920 px)."""
     img = img.copy()
+    s = img.shape[1] / 1920
+    thick, font = max(1, round(4 * s)), 1.4 * s
     for r in rows:
         x1, y1, x2, y2 = map(int, r["box"])
-        c = id_color(r["global_id"])
-        cv2.rectangle(img, (x1, y1), (x2, y2), c, 4)
-        cv2.putText(img, str(r["global_id"]), (x1, max(30, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 1.4, c, 4)
-    img = cv2.resize(img, (TILE_W, TILE_H))
+        c = id_color(r[id_key])
+        cv2.rectangle(img, (x1, y1), (x2, y2), c, thick)
+        cv2.putText(img, str(r[id_key]), (x1, max(round(30 * s), y1 - round(8 * s))), cv2.FONT_HERSHEY_SIMPLEX,
+                    font, c, thick)
+    return img
+
+
+def draw_camera(img: np.ndarray, rows: list[dict], cam: int) -> np.ndarray:
+    img = cv2.resize(draw_boxes(img, rows), (TILE_W, TILE_H))
     cv2.putText(img, f"C{cam + 1}", (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 255, 255), 3)
     return img
 

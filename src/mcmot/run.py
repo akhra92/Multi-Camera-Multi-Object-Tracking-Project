@@ -37,17 +37,21 @@ def load_config(path: str, overrides: list[str]) -> dict:
     return cfg
 
 
-def track_all(ds: Wildtrack, frames: list[int], cfg: dict) -> tuple[list[dict], dict]:
+def track_all(ds: Wildtrack, frames: list[int], cfg: dict, det: PersonDetector | None = None,
+              emb: AppearanceEmbedder | None = None, progress=None) -> tuple[list[dict], dict]:
     """Detection + DeepSORT in every camera + ground-plane association.
-    Returns box rows (with global ids) and frame -> {global id: (x, y)}."""
-    det = PersonDetector(**cfg["detector"])
-    emb = AppearanceEmbedder(gpu=cfg["detector"]["device"] != "cpu")
+    Returns box rows (with global ids) and frame -> {global id: (x, y)}.
+    `det` / `emb` reuse loaded models; `progress(done, total)` replaces the console progress bar."""
+    det = det or PersonDetector(**cfg["detector"])
+    emb = emb or AppearanceEmbedder(gpu=cfg["detector"]["device"] != "cpu")
     trackers = [CameraTracker(**cfg["tracker"]) for _ in range(ds.num_cameras)]
     a = cfg["association"]
     ground_tracker = GroundTracker(a["fuse_radius_cm"], a["max_step_cm"], a["vote_weight"], a["max_age"],
                                    a["min_length"], a["min_cameras"])
     rows = []
-    for t, frame in enumerate(tqdm(frames, desc="detect + track")):
+    for t, frame in enumerate(frames if progress else tqdm(frames, desc="detect + track")):
+        if progress:
+            progress(t, len(frames))
         images = ds.read_images(frame)
         obs = []
         for cam, (img, (boxes, scores)) in enumerate(zip(images, det(images))):
@@ -64,20 +68,25 @@ def track_all(ds: Wildtrack, frames: list[int], cfg: dict) -> tuple[list[dict], 
     return rows, ground
 
 
-def write_video(ds: Wildtrack, frames: list[int], rows: list[dict], ground: dict, gt: dict, path: Path) -> None:
+def render_frames(ds: Wildtrack, frames: list[int], rows: list[dict], ground: dict, gt: dict):
+    """Yield one 3 x 3 mosaic (7 views + bird's-eye view, BGR) per frame."""
     by_frame: dict[int, list] = {}
     for r in rows:
         by_frame.setdefault(r["frame"], []).append(r)
-    writer = None
     history: dict[int, list] = {}
-    for frame in tqdm(frames, desc="video"):
+    for frame in frames:
         images = ds.read_images(frame)
         tiles = [draw_camera(img, [r for r in by_frame.get(frame, []) if r["cam"] == c], c)
                  for c, img in enumerate(images)]
         for g, xy in ground.get(frame, {}).items():
             history.setdefault(g, []).append(xy)
         tiles.append(draw_bev(ground.get(frame, {}), gt[frame], history))
-        canvas = mosaic(tiles)
+        yield mosaic(tiles)
+
+
+def write_video(ds: Wildtrack, frames: list[int], rows: list[dict], ground: dict, gt: dict, path: Path) -> None:
+    writer = None
+    for canvas in tqdm(render_frames(ds, frames, rows, ground, gt), total=len(frames), desc="video"):
         if writer is None:
             writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), FPS, canvas.shape[1::-1])
         writer.write(canvas)

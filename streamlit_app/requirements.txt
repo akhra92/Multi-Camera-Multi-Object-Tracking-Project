@@ -1,0 +1,16 @@
+# Streamlit Community Cloud reads this file (it is next to the entrypoint, so it wins over the root uv.lock,
+# which pins CUDA PyTorch). CPU-only PyTorch keeps the install small enough for the free tier.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.4
+torchvision>=0.19
+streamlit>=1.40
+imageio-ffmpeg>=0.5
+numpy>=1.26
+pandas>=2.2
+scipy>=1.11
+opencv-python-headless>=4.9
+ultralytics>=8.3
+deep-sort-realtime>=1.3.2
+motmetrics>=1.4
+pyyaml>=6.0
+tqdm>=4.66

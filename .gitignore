@@ -5,3 +5,21 @@ outputs/
 __pycache__/
 *.egg-info/
 *.pt
+
+# Python / test caches
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Model weights downloaded by Ultralytics (*.pt above) and its default run folder
+*.onnx
+runs/
+
+# Streamlit: secrets stay local (set them in the Cloud dashboard); config.toml is committed
+.streamlit/secrets.toml
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
