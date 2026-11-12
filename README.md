@@ -49,7 +49,7 @@ Regenerate both images from a finished run (no models needed): `uv run python sc
 
 ## Streamlit app
 
-An interactive demo that runs on CPU, so it fits the free Streamlit Community Cloud. It needs no dataset download.
+An interactive demo that runs on GPU or CPU and needs no dataset download.
 
 - **Track a video**: upload any video, or leave the uploader empty to use the default video (WILDTRACK camera C1).
   YOLO11 + DeepSORT; one uncalibrated video has no ground plane, so ids are per-video track ids. Output: annotated
@@ -63,11 +63,8 @@ uv sync --group app
 uv run streamlit run streamlit_app/app.py
 ```
 
-Deploy on [Streamlit Community Cloud](https://share.streamlit.io): push the repo to GitHub, then **Create app** →
-pick the repo and branch, set **Main file path** to `streamlit_app/app.py`, and under **Advanced settings** choose
-Python 3.12. Cloud installs `streamlit_app/requirements.txt` (CPU PyTorch; it takes precedence over the root `uv.lock`,
-which pins CUDA PyTorch) and `packages.txt` (libGL for OpenCV). The YOLO weights download on the first run. On the
-free tier (about 2 CPU cores) the default video takes about 45 s and the multi-camera sample about 2 min with YOLO11s.
+Timing with YOLO11s (default video / multi-camera sample): about 45 s / 2 min on 2 CPU cores, 35 s / 45 s on an
+RTX 3090 (tracking and video encoding stay on the CPU). The YOLO weights download on the first run.
 
 Regenerate the bundled sample from the full dataset: `uv run python scripts/make_app_sample.py`.
 

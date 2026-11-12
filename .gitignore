@@ -16,7 +16,7 @@ __pycache__/
 *.onnx
 runs/
 
-# Streamlit: secrets stay local (set them in the Cloud dashboard); config.toml is committed
+# Streamlit: secrets stay local; config.toml is committed
 .streamlit/secrets.toml
 
 # Editors / OS

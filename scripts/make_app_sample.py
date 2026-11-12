@@ -1,4 +1,4 @@
-"""Build the small default data the Streamlit app ships with (the full dataset is 6.8 GB, too big for the cloud).
+"""Build the small default data the Streamlit app ships with (so it runs without the 6.8 GB dataset).
 
     uv run python scripts/make_app_sample.py [--data data/Wildtrack] [--start 905] [--frames 20] [--video-frames 60]
 

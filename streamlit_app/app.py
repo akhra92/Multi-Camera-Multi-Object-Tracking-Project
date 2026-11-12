@@ -1,11 +1,8 @@
 """Streamlit demo: people tracking in one video, and the full multi-camera pipeline on a WILDTRACK sample.
 
     uv sync --group app && uv run streamlit run streamlit_app/app.py
-
-Streamlit Community Cloud: main file `streamlit_app/app.py` (dependencies come from streamlit_app/requirements.txt).
 """
 import contextlib
-import sys
 import tempfile
 import threading
 import time
@@ -14,16 +11,14 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from mcmot.detection import PersonDetector
+from mcmot.evaluate import evaluate
+from mcmot.run import load_config, render_frames, track_all
+from mcmot.single_video import H264Writer, track_video, video_info
+from mcmot.tracking import AppearanceEmbedder
+from mcmot.wildtrack import FPS, Wildtrack
+
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))  # use the package without installing it (keeps the cloud build CPU-only)
-
-from mcmot.detection import PersonDetector  # noqa: E402
-from mcmot.evaluate import evaluate  # noqa: E402
-from mcmot.run import load_config, render_frames, track_all  # noqa: E402
-from mcmot.single_video import H264Writer, track_video, video_info  # noqa: E402
-from mcmot.tracking import AppearanceEmbedder  # noqa: E402
-from mcmot.wildtrack import FPS, Wildtrack  # noqa: E402
-
 DEFAULT_VIDEO = ROOT / "assets" / "sample" / "default_video.mp4"
 SAMPLE_DATA = ROOT / "assets" / "sample" / "wildtrack"
 MODELS = {"YOLO11n (fastest)": "yolo11n.pt", "YOLO11s": "yolo11s.pt", "YOLO11m (best, slow on CPU)": "yolo11m.pt"}
@@ -120,7 +115,7 @@ with tab_video:
     stride = c1.number_input("Process every n-th frame", 1, 30, default_stride,
                              help="Higher = faster; the output plays at fps / n.")
     max_frames = c2.number_input("Max processed frames", 10, 2000, min(150, max(10, -(-total // stride))),
-                                 help="Caps run time on the CPU-only cloud.")
+                                 help="Caps run time, mainly on CPU.")
     width = c3.select_slider("Processing width (px)", [480, 640, 960, 1280], 960)
     imgsz = 1280 if width > 960 else 960
 
