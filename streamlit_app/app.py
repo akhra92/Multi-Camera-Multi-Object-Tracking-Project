@@ -4,8 +4,10 @@
 
 Streamlit Community Cloud: main file `streamlit_app/app.py` (dependencies come from streamlit_app/requirements.txt).
 """
+import contextlib
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -25,6 +27,8 @@ from mcmot.wildtrack import FPS, Wildtrack  # noqa: E402
 DEFAULT_VIDEO = ROOT / "assets" / "sample" / "default_video.mp4"
 SAMPLE_DATA = ROOT / "assets" / "sample" / "wildtrack"
 MODELS = {"YOLO11n (fastest)": "yolo11n.pt", "YOLO11s": "yolo11s.pt", "YOLO11m (best, slow on CPU)": "yolo11m.pt"}
+UPLOAD_DIR = Path(tempfile.gettempdir()) / "mcmot_uploads"
+UPLOAD_MAX_AGE_S = 3600  # uploads untouched this long belong to closed sessions
 
 st.set_page_config(page_title="Multi-Camera Multi-Object Tracking", page_icon="🎥", layout="wide")
 
@@ -36,6 +40,40 @@ def load_models(weights: str):
     device = 0 if torch.cuda.is_available() else "cpu"
     det = PersonDetector(str(ROOT / weights) if (ROOT / weights).exists() else weights, device=device)
     return det, AppearanceEmbedder(gpu=device != "cpu"), device
+
+
+@st.cache_resource
+def model_lock() -> threading.Lock:
+    """All sessions share the cached models, and YOLO is not thread-safe: one tracking run at a time."""
+    return threading.Lock()
+
+
+@contextlib.contextmanager
+def exclusive_models():
+    lock = model_lock()
+    if not lock.acquire(blocking=False):
+        with st.spinner("Another visitor's run is using the models, waiting for it to finish..."):
+            lock.acquire()
+    try:
+        yield
+    finally:
+        lock.release()
+
+
+def upload_path(upload) -> Path:
+    """Save the upload once per file and keep it while the session uses it; delete stale uploads of other
+    sessions (Streamlit gives no session-end hook, so age is the signal)."""
+    UPLOAD_DIR.mkdir(exist_ok=True)
+    path = UPLOAD_DIR / f"{upload.file_id}{Path(upload.name).suffix or '.mp4'}"
+    now = time.time()
+    for old in UPLOAD_DIR.iterdir():
+        if old != path and now - old.stat().st_mtime > UPLOAD_MAX_AGE_S:
+            old.unlink(missing_ok=True)
+    if path.exists():
+        path.touch()  # every rerun refreshes it, so an open session's file never looks stale
+    else:
+        path.write_bytes(upload.getbuffer())
+    return path
 
 
 def progress_bar(label: str):
@@ -52,8 +90,7 @@ def progress_bar(label: str):
 st.sidebar.header("Settings")
 model_name = st.sidebar.selectbox("Person detector", list(MODELS), index=1)
 conf = st.sidebar.slider("Detection confidence", 0.1, 0.9, 0.3, 0.05)
-det, emb, device = load_models(MODELS[model_name])
-det.conf = conf
+det, emb, device = load_models(MODELS[model_name])  # shared by all sessions: never modify, use with_settings()
 st.sidebar.caption(f"Running on: **{'GPU' if device != 'cpu' else 'CPU'}**")
 
 st.title("Multi-Camera Multi-Object Tracking")
@@ -67,11 +104,7 @@ with tab_video:
                 "A single uncalibrated video has no ground plane, so ids are per-video DeepSORT track ids.")
     upload = st.file_uploader("Video", type=["mp4", "mov", "avi", "mkv", "webm", "mpeg4"])
     if upload is not None:
-        suffix = Path(upload.name).suffix or ".mp4"
-        src = Path(tempfile.gettempdir()) / f"mcmot_upload_{upload.file_id}{suffix}"
-        if not src.exists():
-            src.write_bytes(upload.getbuffer())
-        source_name = upload.name
+        src, source_name = upload_path(upload), upload.name
     else:
         src, source_name = DEFAULT_VIDEO, "default video (WILDTRACK C1)"
 
@@ -93,13 +126,13 @@ with tab_video:
 
     key = ("video", str(src), stride, max_frames, width, model_name, conf)
     if st.button("▶ Run tracking", type="primary", key="run_video"):
-        det.imgsz = imgsz
-        out = Path(tempfile.mkdtemp()) / "tracked.mp4"
-        bar, update = progress_bar("Detecting + tracking")
-        rows = track_video(src, out, det, emb, stride=int(stride), max_frames=int(max_frames), width=width,
-                           progress=update)
-        bar.empty()
-        st.session_state["video_result"] = (key, out.read_bytes(), rows)
+        with exclusive_models(), tempfile.TemporaryDirectory() as tmp:
+            bar, update = progress_bar("Detecting + tracking")
+            out = Path(tmp) / "tracked.mp4"
+            rows = track_video(src, out, det.with_settings(imgsz=imgsz, conf=conf), emb, stride=int(stride),
+                               max_frames=int(max_frames), width=width, progress=update)
+            bar.empty()
+            st.session_state["video_result"] = (key, out.read_bytes(), rows)
 
     result = st.session_state.get("video_result")
     if result and result[0] == key:
@@ -131,20 +164,23 @@ with tab_multi:
     key = ("multi", model_name, conf)
     if st.button("▶ Run multi-camera tracking", type="primary", key="run_multi"):
         cfg = load_config(str(ROOT / "configs" / "wildtrack.yaml"), [])
-        det.imgsz = 960  # sample images are 960x540
-        bar, update = progress_bar("Detecting + tracking in 7 cameras")
-        rows, ground = track_all(ds, ds.frames, cfg, det=det, emb=emb, progress=update)
+        with exclusive_models():
+            bar, update = progress_bar("Detecting + tracking in 7 cameras")
+            rows, ground = track_all(ds, ds.frames, cfg, det=det.with_settings(imgsz=960, conf=conf),  # 960x540 images
+                                     emb=emb, progress=update)
         bar.progress(1.0, text="Rendering video...")
         gt = {f: ds.annotations(f) for f in ds.frames}
-        out = Path(tempfile.mkdtemp()) / "multi_camera.mp4"
-        writer = H264Writer(out, FPS)
-        for canvas in render_frames(ds, ds.frames, rows, ground, gt):
-            writer.write(canvas)
-        writer.close()
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "multi_camera.mp4"
+            writer = H264Writer(out, FPS)
+            for canvas in render_frames(ds, ds.frames, rows, ground, gt):
+                writer.write(canvas)
+            writer.close()
+            video_bytes = out.read_bytes()
         bar.empty()
         e = cfg["evaluation"]
         metrics = evaluate(gt, rows, ground, ds.num_cameras, e["iou_threshold"], e["ground_dist_cm"])
-        st.session_state["multi_result"] = (key, out.read_bytes(), metrics, rows, ground)
+        st.session_state["multi_result"] = (key, video_bytes, metrics, rows, ground)
 
     result = st.session_state.get("multi_result")
     if result and result[0] == key:

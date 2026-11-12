@@ -1,4 +1,6 @@
 """Person detection with a COCO-pretrained YOLO model (Ultralytics). No training: 'person' is a COCO class."""
+import copy
+
 import numpy as np
 
 
@@ -8,6 +10,13 @@ class PersonDetector:
 
         self.model = YOLO(weights)
         self.imgsz, self.conf, self.device = imgsz, conf, device
+
+    def with_settings(self, imgsz: int | None = None, conf: float | None = None) -> "PersonDetector":
+        """A copy with other settings that shares the loaded model (the shared original stays unchanged)."""
+        det = copy.copy(self)
+        det.imgsz = self.imgsz if imgsz is None else imgsz
+        det.conf = self.conf if conf is None else conf
+        return det
 
     def __call__(self, images: list[np.ndarray]) -> list[tuple[np.ndarray, np.ndarray]]:
         """BGR images -> per image (boxes (N, 4) x1 y1 x2 y2 in pixels, scores (N,))."""
